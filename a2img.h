@@ -1,6 +1,6 @@
 /* Anything to image
  * Author: Sam Pollard
- * Last Modified:  March 15, 2014
+ * Last Modified:  April 8, 2014
  * Header file for includes, constant definitions, prototypes
  */
 
@@ -11,6 +11,8 @@
 
 #define MAX_FILENAME_LEN 255
 #define VERBOSE 1 // If the "-v" flag is present
+#define RAWPPM 2 // If the "-r" flag is present
 #define USAGE_STRING "usage: a2img [options] filename imagename\n"
+#define README_URL "https://github.com/sampollard/a2img/blob/master/README.md"
 
 int makeppm(FILE *infile, FILE *outppm, int mode);

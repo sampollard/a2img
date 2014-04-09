@@ -1,10 +1,13 @@
 /* Anything to image
  * Author: Sam Pollard
- * Last Modified: March 15, 2014
+ * Last Modified: April 8, 2014
  * Idea: Convert literally any file into an image.
  * Supported formats: PPM (default)
  */
 #include "a2img.h"
+
+/* Helper function(s) */
+int getflags(int argc, char *argv[], int *flags);
 
 int main(int argc, char *argv[])
 {
@@ -24,18 +27,8 @@ int main(int argc, char *argv[])
 	int argoffs = 0; // Argument offset (to skip flags)
 	int flags = 0;
 	if (argc > 1) {
-		while (strncmp(argv[argoffs+1], "-", 1) == 0) {
-			if (strncmp(argv[argoffs+1], "-h", 2) == 0) {
-				if (system("less README.md") < 0) {
-					retval = 1;
-					perror("The README is available at https://github.com/sampollard/a2img/blob/master/README.md");
-				}
-				return retval;
-			} else if (strncmp(argv[argoffs+1], "-v", 2) == 0) {
-				flags = flags | VERBOSE;
-			}
-			argoffs++;
-		}
+		if ((argoffs = getflags(argc, argv, &flags)) < 0)
+			return 1;
 	} else {
 		printf(USAGE_STRING);
 		return 1;
@@ -47,7 +40,7 @@ int main(int argc, char *argv[])
 		printf(USAGE_STRING);
 		return 1;
 	case 2 : // Make the image name filename.extension
-		outfilelen = strlen(argv[1]) + extsz;
+		outfilelen = strlen(argv[argoffs+1]) + extsz;
 		if (outfilelen > MAX_FILENAME_LEN) {
 			printf("%s: %s: file name too long\n", argv[0], argv[argoffs+1]);
 			retval = 1;
@@ -108,6 +101,30 @@ int main(int argc, char *argv[])
 	return retval;
 }
 
+/* Given the command line arguments from main, this counts the number of flags
+ * and sets them in the flags fiend. Returns a nonnegative number for normal
+ * behavior, a negative number if an error occurs (e.g. can't find README file).
+ */
+int getflags(int argc, char *argv[], int *flags)
+{
+	int argoffs = 0;
+	while (strncmp(argv[argoffs+1], "-", 1) == 0) {
+		if (strncmp(argv[argoffs+1], "-h", 2) == 0) {
+			if (system("less README.md") != 0) {
+				printf("The README is available at ");
+				printf(README_URL); printf("\n");
+				return -1;
+			}
+		} else if (strncmp(argv[argoffs+1], "-v", 2) == 0) {
+			*flags = *flags | VERBOSE;
+		} else if (strncmp(argv[argoffs+1], "-r", 2) == 0) {
+			*flags = *flags | RAWPPM;
+		}
+		argoffs++;
+	}
+	return argoffs;
+}
+
 /* One pixel of is represented by 24 consecutive bits (RGB, respectively).
  * each is read as 1 byte, unsigned (range 0-255). Returns 0 on success,
  * -1 on error. */
@@ -116,7 +133,6 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 	unsigned char pixel[3];	// [0] = Red, [1] = Green, [2] = Blue
 	long insize;			// To determine how large to make the image
 	int width, height;		// Of the image, in pixels
-	long thirdpixcnt;		// The number of bytes to read (<= insize)
 
 	/* Determine dimensions of the image */
 	fseek(infile, 0L, SEEK_END);
@@ -124,17 +140,18 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 	rewind(infile);
 	width = (int) sqrt(insize/3);
 	height = width;
-	thirdpixcnt = width * height * 3;
 
 	/* Verbose */
-	if (mode & VERBOSE) {
-		printf("Size of infile: %ld\nSize of image: %dx%d\n",
+	if (mode & VERBOSE)
+		printf("Size of input file: %ldB\nSize of image: %dx%d pixels\n",
 				insize, height, width);
-		printf("%d * %d = %ld < %ld\n", height, width, thirdpixcnt, insize);
-	}
+
 	/* Make the ppm! */
 	/* Magic Number (P6 is raw ppm, P3 is plain ppm), width, height, maxval */
-	fprintf(outppm, "P3 %d %d 255\n", width, height);
+	if (mode & RAWPPM)
+		fprintf(outppm, "P6 %d %d 255\n", width, height);
+	else
+		fprintf(outppm, "P3 %d %d 255\n", width, height);
 	int col;
 	int row;
 	for (row = 0; row < height; row++) {
@@ -147,7 +164,11 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 					return -1;
 				}
 			}
-			fprintf(outppm, "%hhu %hhu %hhu\n", pixel[0], pixel[1], pixel[2]);
+			if (mode & RAWPPM)
+				fwrite(pixel, 1, 3, outppm);
+			else
+				fprintf(outppm, "%hhu %hhu %hhu\n",
+						pixel[0], pixel[1], pixel[2]);
 		}
 	}
 	fclose(outppm);
