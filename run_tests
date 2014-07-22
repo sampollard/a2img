@@ -1,0 +1,3 @@
+#!/bin/sh
+echo -n "This should be an error but still display the help file "
+./a2img -h -o -v

@@ -1,6 +1,6 @@
 /* Anything to image
  * Author: Sam Pollard
- * Last Modified: April 8, 2014
+ * Last Modified: July 22, 2014
  * Idea: Convert literally any file into an image.
  * Supported formats: PPM (default)
  */
@@ -8,6 +8,8 @@
 
 /* Helper function(s) */
 int getflags(int argc, char *argv[], int *flags);
+int isDigit(char c); // replaces the horrible ctype isDigit function
+long offset; // Global variable to store how many bits the program should skip
 
 int main(int argc, char *argv[])
 {
@@ -34,11 +36,27 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Check that the input file exists */
+	if (argc - argoffs == 1) {
+		printf(USAGE_STRING);
+		free(extension);
+		return 1;
+	}
+	if (access(argv[argoffs+1], F_OK) != -1) {
+		infile = fopen(argv[argoffs+1], "r");
+		if (infile == NULL) {
+			perror("fopen");
+			free(extension);
+			return 1;
+		}
+	} else {
+		perror("access");
+		free(extension);
+		return 1;
+	}
+
 	/* Get the name of the file to write to */
 	switch (argc - argoffs) {
-	case 1 :
-		printf(USAGE_STRING);
-		return 1;
 	case 2 : // Make the image name filename.extension
 		outfilelen = strlen(argv[argoffs+1]) + extsz;
 		if (outfilelen > MAX_FILENAME_LEN) {
@@ -79,14 +97,6 @@ int main(int argc, char *argv[])
 		printf(USAGE_STRING);
 		retval = 1;
 	}
-	/* Get the name of the file to read from */
-	if (retval == 0) {
-		infile = fopen(argv[argoffs+1], "r");
-		if (infile == NULL) {
-			free(extension);
-			return 1;
-		}
-	}
 
 	/* Infile and outfile are all set up by now. Start writing! */
 	if (retval == 0)
@@ -108,7 +118,7 @@ int main(int argc, char *argv[])
 int getflags(int argc, char *argv[], int *flags)
 {
 	int argoffs = 0;
-	while (strncmp(argv[argoffs+1], "-", 1) == 0) {
+	while (argv[argoffs+1] != NULL && strncmp(argv[argoffs+1], "-", 1) == 0) {
 		if (strncmp(argv[argoffs+1], "-h", 2) == 0) {
 			if (system("less README.md") != 0) {
 				printf("The README is available at ");
@@ -119,6 +129,24 @@ int getflags(int argc, char *argv[], int *flags)
 			*flags = *flags | VERBOSE;
 		} else if (strncmp(argv[argoffs+1], "-r", 2) == 0) {
 			*flags = *flags | RAWPPM;
+		} else if (strncmp(argv[argoffs+1], "-o", 2) == 0) {
+			// Found offset flag. Check that the next arg is a positive integer.
+			if (argv[argoffs+2] == NULL) {
+				printf("usage: a2img -o bit-offset filename [imagename]\n");
+				return -1;
+			} else if (!isDigit(*argv[argoffs+2])) {
+				printf("Offset flag must be followed by a positive integer.\n");
+				return -1;
+			}
+			if (atoi(argv[argoffs+2]) == 0) {
+				printf("Offset of zero has no effect\n");
+				return -1;
+			}
+			// Offset is valid. Store the value and move on.
+			// printf("offset = %d\n", atoi(argv[argoffs+2])); // TEST
+			offset = (long) atoi(argv[argoffs+2]);
+			argoffs++;
+		*flags = *flags | OFFSET;
 		}
 		argoffs++;
 	}
@@ -133,6 +161,7 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 	unsigned char pixel[3];	// [0] = Red, [1] = Green, [2] = Blue
 	long insize;			// To determine how large to make the image
 	int width, height;		// Of the image, in pixels
+	int offbits;			// offset modulo 8 (fseek adjusts by bytes)
 
 	/* Determine dimensions of the image */
 	fseek(infile, 0L, SEEK_END);
@@ -141,10 +170,23 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 	width = (int) sqrt(insize/3);
 	height = width;
 
+	/* Adjust file pointer to the offset */
+	if (insize < offset) {
+		printf("Offset is larger than file\n");
+		return -1;
+	} else if (insize == 0) {
+		printf("Warning: input file has a size of 0\n");
+	}
+	fseek(infile, offset / 8, SEEK_CUR);
+	offbits = offset % 8;
+
 	/* Verbose */
-	if (mode & VERBOSE)
+	if (mode & VERBOSE) {
 		printf("Size of input file: %ldB\nSize of image: %dx%d pixels\n",
 				insize, height, width);
+		if (mode & OFFSET)
+			printf("Offset: %ldb\n", offset);
+	}
 
 	/* Make the ppm! */
 	/* Magic Number (P6 is raw ppm, P3 is plain ppm), width, height, maxval */
@@ -174,4 +216,22 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 	fclose(outppm);
 	// printf("final row = %d, final col = %d\n", row, col); // TEST
 	return 0;
+}
+
+int isDigit(char c) {
+    switch (c) {
+        case '0': ;
+        case '1': ;
+        case '2': ;
+        case '3': ;
+        case '4': ;
+        case '5': ;
+        case '6': ;
+        case '7': ;
+        case '8': ;
+        case '9':
+            return 1;
+        default :
+            return 0;
+    }
 }
