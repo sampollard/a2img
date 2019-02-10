@@ -138,10 +138,6 @@ int getflags(int argc, char *argv[], int *flags)
 				printf("Offset flag must be followed by a positive integer.\n");
 				return -1;
 			}
-			if (atoi(argv[argoffs+2]) == 0) {
-				printf("Offset of zero has no effect\n");
-				return -1;
-			}
 			// Offset is valid. Store the value and move on.
 			// printf("offset = %d\n", atoi(argv[argoffs+2])); // TEST
 			offset = (long) atoi(argv[argoffs+2]);
@@ -159,15 +155,17 @@ int getflags(int argc, char *argv[], int *flags)
 int makeppm(FILE *infile, FILE *outppm, int mode)
 {
 	unsigned char pixel[3];	// [0] = Red, [1] = Green, [2] = Blue
+	unsigned char tmp[4];   // Enough for offset
 	long insize;			// To determine how large to make the image
 	int width, height;		// Of the image, in pixels
 	int offbits;			// offset modulo 8 (fseek adjusts by bytes)
+	size_t sz;              // Read size
 
 	/* Determine dimensions of the image */
 	fseek(infile, 0L, SEEK_END);
 	insize = ftell(infile);
 	rewind(infile);
-	width = (int) sqrt(insize/3);
+	width = (int) sqrt((insize - (offset+1)/8+1) / 3);
 	height = width;
 
 	/* Adjust file pointer to the offset */
@@ -194,11 +192,14 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 		fprintf(outppm, "P6 %d %d 255\n", width, height);
 	else
 		fprintf(outppm, "P3 %d %d 255\n", width, height);
-	int col;
-	int row;
+	int col, row;
+	int mask = -1;
+	mask = ~((unsigned char)mask >> offbits);
 	for (row = 0; row < height; row++) {
 		for (col = 0; col < width; col++) {
-			if (fread(pixel, 3, 1, infile) == 0) { // Read 3 bytes per fread
+			// Read 4 bytes to account for offset
+			sz = fread(tmp, 4, 1, infile);
+			if (sz == 0) {
 				if(!feof(infile)) {
 					perror("fread");
 					fclose(infile);
@@ -206,6 +207,13 @@ int makeppm(FILE *infile, FILE *outppm, int mode)
 					return -1;
 				}
 			}
+			fseek(infile, -1, SEEK_CUR);
+			pixel[0] = tmp[0] << offbits;
+			pixel[0] = pixel[0] | ((tmp[1] & mask) >> (8 - offbits));
+			pixel[1] = tmp[1] << offbits;
+			pixel[1] = pixel[1] | ((tmp[2] & mask) >> (8 - offbits));
+			pixel[2] = tmp[2] << offbits;
+			pixel[2] = pixel[2] | ((tmp[3] & mask) >> (8 - offbits));
 			if (mode & RAWPPM)
 				fwrite(pixel, 1, 3, outppm);
 			else
